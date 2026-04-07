@@ -1,0 +1,199 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SecureCodeEnv++ — OpenEnv Specification (Steps 28–30)
+# ═══════════════════════════════════════════════════════════════════════════
+
+openenv: "1.0"
+
+metadata:
+  name: SecureCodeEnv++
+  version: "1.0.0"
+  description: >
+    An OpenEnv-compatible AI environment for security vulnerability detection,
+    bug reproduction, patch generation, and deployment-decision simulation.
+    All scoring is deterministic.  Only Hugging Face models are used.
+  author: SecureCodeEnv Team
+  license: MIT
+  tags:
+    - security
+    - code-review
+    - self-healing
+    - vulnerability-detection
+
+# ── Step 29: Observation / Action / Reward schemas ──────────────────────────
+
+schemas:
+  observation:
+    type: object
+    properties:
+      task_id:
+        type: string
+        description: Unique, deterministic identifier for the task.
+      code_snippet:
+        type: string
+        description: The source code the agent must analyse.
+      language:
+        type: string
+        default: python
+        description: Programming language of the snippet.
+      difficulty:
+        type: string
+        enum: [easy, medium, hard]
+        description: Task difficulty level.
+      step_count:
+        type: integer
+        default: 0
+        description: How many steps the agent has taken so far.
+      max_steps:
+        type: integer
+        default: 5
+        description: Maximum allowed steps before the episode ends.
+      description:
+        type: string
+        default: ""
+        description: Human-readable task description.
+    required:
+      - task_id
+      - code_snippet
+      - difficulty
+
+  action:
+    type: object
+    properties:
+      analysis:
+        type: string
+        description: Free-text security analysis of the snippet.
+      vulnerabilities:
+        type: array
+        items:
+          type: object
+          properties:
+            type:
+              type: string
+              description: "CWE-style label, e.g. 'hardcoded-secret'."
+            location:
+              type: string
+              description: Line or range where the vulnerability lives.
+            severity:
+              type: string
+              enum: [low, medium, high, critical]
+              default: high
+            description:
+              type: string
+              default: ""
+        description: List of detected vulnerabilities.
+      fixes:
+        type: array
+        items:
+          type: object
+          properties:
+            target_vulnerability:
+              type: string
+              description: The vulnerability type this fix addresses.
+            original_code:
+              type: string
+              description: The code being replaced.
+            fixed_code:
+              type: string
+              description: The replacement code.
+            explanation:
+              type: string
+              default: ""
+        description: List of proposed code fixes.
+      confidence:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.5
+        description: Agent's self-reported confidence in its answer.
+    required:
+      - analysis
+
+  reward:
+    type: object
+    properties:
+      score:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        description: Weighted total score.
+      feedback:
+        type: string
+        default: ""
+        description: Human-readable feedback.
+      breakdown:
+        type: object
+        properties:
+          vulnerability_score:
+            type: number
+            description: "Score for vulnerability detection (weight 0.4)."
+          explanation_score:
+            type: number
+            description: "Score for explanation quality (weight 0.3)."
+          fix_score:
+            type: number
+            description: "Score for fix correctness (weight 0.3)."
+      done:
+        type: boolean
+        default: false
+        description: Whether the episode has ended.
+      task_id:
+        type: string
+        default: ""
+        description: The task that was evaluated.
+    required:
+      - score
+
+# ── Step 30: Endpoint mapping ──────────────────────────────────────────────
+
+endpoints:
+  reset:
+    method: POST
+    path: /reset
+    request_body:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Optional task ID to select a specific task.
+    response:
+      $ref: "#/schemas/observation"
+    description: Start or restart an episode.
+
+  step:
+    method: POST
+    path: /step
+    request_body:
+      $ref: "#/schemas/action"
+    response:
+      $ref: "#/schemas/reward"
+    description: Submit an agent action and receive a graded reward.
+
+  state:
+    method: GET
+    path: /state
+    response:
+      $ref: "#/schemas/observation"
+    description: Return the current observation without advancing the episode.
+
+# ── Tasks ──────────────────────────────────────────────────────────────────
+
+tasks:
+  - id: SEC-EASY-001
+    difficulty: easy
+    description: Detect hardcoded AWS credentials in Python source.
+  - id: SEC-MED-001
+    difficulty: medium
+    description: Detect SQL injection and missing input validation in Flask.
+  - id: SEC-HARD-001
+    difficulty: hard
+    description: Detect multiple vulnerabilities (eval, pickle, path traversal, YAML, SQL injection, command injection).
+
+# ── Scoring ────────────────────────────────────────────────────────────────
+
+scoring:
+  deterministic: true
+  weights:
+    vulnerability_detection: 0.4
+    explanation_quality: 0.3
+    fix_correctness: 0.3
+  range: [0.0, 1.0]

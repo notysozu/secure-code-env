@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secure-code-env"
+version = "1.0.0"
+description = "OpenEnv-compatible AI environment for security vulnerability detection and self-healing."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "requests>=2.31",
+    "huggingface-hub>=0.20",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.24",
+    "ruff>=0.1",
+]
+
+[project.scripts]
+secure-code-agent = "secure_code_env.inference:main"
+
+[tool.setuptools.packages.find]
+include = ["secure_code_env*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

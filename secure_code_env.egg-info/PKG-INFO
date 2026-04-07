@@ -1,0 +1,266 @@
+Metadata-Version: 2.4
+Name: secure-code-env
+Version: 1.0.0
+Summary: OpenEnv-compatible AI environment for security vulnerability detection and self-healing.
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.0
+Requires-Dist: fastapi>=0.100
+Requires-Dist: uvicorn[standard]>=0.23
+Requires-Dist: requests>=2.31
+Requires-Dist: huggingface-hub>=0.20
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: httpx>=0.24; extra == "dev"
+Requires-Dist: ruff>=0.1; extra == "dev"
+
+# 🔐 SecureCodeEnv++
+
+> An **OpenEnv-compatible AI environment** for security vulnerability detection,
+> bug reproduction, patch generation, and deployment-decision simulation.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
+[![OpenEnv 1.0](https://img.shields.io/badge/OpenEnv-1.0-green.svg)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
+
+## Overview
+
+SecureCodeEnv++ is a **scored, deterministic benchmark environment** where an AI
+agent must:
+
+1. **Detect** security vulnerabilities in source code
+2. **Reproduce** bugs to confirm exploitability
+3. **Generate** patches using Hugging Face models
+4. **Validate** fixes (syntax, tests, regression)
+5. **Decide** whether to deploy
+
+All scoring is rule-based and perfectly reproducible — no LLM judge.
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SecureCodeEnv++                        │
+│                                                          │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────────┐    │
+│  │  Tasks    │───▶│   Env    │───▶│    Grader        │    │
+│  │ Registry  │    │ (OpenEnv)│    │ (Deterministic)  │    │
+│  └──────────┘    └────┬─────┘    └──────────────────┘    │
+│                       │                                   │
+│              ┌────────▼────────┐                          │
+│              │   FastAPI App   │                          │
+│              │ /reset /step    │                          │
+│              │ /state /tasks   │                          │
+│              └────────┬────────┘                          │
+│                       │                                   │
+│  ┌────────────────────▼──────────────────────┐           │
+│  │         Self-Healing Pipeline              │           │
+│  │  Detect → Reproduce → Patch → Validate    │           │
+│  └────────────────────┬──────────────────────┘           │
+│                       │                                   │
+│              ┌────────▼────────┐                          │
+│              │   HF Client    │                          │
+│              │ StarCoder/     │                          │
+│              │ Mistral        │                          │
+│              └────────────────┘                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Tasks
+
+| ID | Difficulty | Vulnerabilities | Description |
+|----|-----------|----------------|-------------|
+| `SEC-EASY-001` | 🟢 Easy | Hardcoded secret | AWS credentials in source code |
+| `SEC-MED-001` | 🟡 Medium | SQL injection, missing validation | Flask endpoint with string-concatenated SQL |
+| `SEC-HARD-001` | 🔴 Hard | eval, pickle, path traversal, YAML, SQL injection, command injection | Utility module with 6 security flaws |
+
+---
+
+## Scoring
+
+All scoring is **deterministic** with three weighted components:
+
+| Component | Weight | Method |
+|-----------|--------|--------|
+| **Vulnerability Detection** | 0.4 | Set intersection of expected vs. predicted types |
+| **Explanation Quality** | 0.3 | Keyword matching against required terms |
+| **Fix Correctness** | 0.3 | Target-type matching + token overlap with reference |
+
+**Self-healing pipeline scoring:**
+
+| Stage | Weight |
+|-------|--------|
+| Reproduction | +0.2 |
+| Compile/Syntax | +0.2 |
+| Tests | +0.3 |
+| Regression | +0.2 |
+| Deploy readiness | +0.1 |
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.10+
+- (Optional) Hugging Face API token for model inference
+
+### Install
+
+```bash
+# Clone the repository
+cd secure-code-env
+
+# Install in development mode
+pip install -e ".[dev]"
+
+# Or just install dependencies
+pip install -r requirements.txt
+```
+
+### Environment Variables
+
+```bash
+export HF_TOKEN="hf_..."     # Optional: Hugging Face API token
+```
+
+---
+
+## API Usage
+
+### Start the Server
+
+```bash
+uvicorn secure_code_env.app:app --host 0.0.0.0 --port 8000
+```
+
+### Endpoints
+
+#### `POST /reset` — Start an episode
+
+```bash
+curl -X POST http://localhost:8000/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "SEC-EASY-001"}'
+```
+
+**Response:** `Observation` with code snippet, difficulty, and task metadata.
+
+#### `POST /step` — Submit an action
+
+```bash
+curl -X POST http://localhost:8000/step \
+  -H "Content-Type: application/json" \
+  -d '{
+    "analysis": "Found hardcoded AWS credentials...",
+    "vulnerabilities": [
+      {"type": "hardcoded-secret", "location": "line 3-4", "severity": "critical"}
+    ],
+    "fixes": [
+      {
+        "target_vulnerability": "hardcoded-secret",
+        "original_code": "AWS_SECRET_KEY = \"...\"",
+        "fixed_code": "AWS_SECRET_KEY = os.environ[\"AWS_SECRET_KEY\"]",
+        "explanation": "Use environment variables for secrets."
+      }
+    ],
+    "confidence": 0.9
+  }'
+```
+
+**Response:** `Reward` with score, feedback, and per-component breakdown.
+
+#### `GET /state` — Peek at current observation
+
+```bash
+curl http://localhost:8000/state
+```
+
+#### `GET /tasks` — List available tasks
+
+```bash
+curl http://localhost:8000/tasks
+```
+
+---
+
+## Running the Baseline Agent
+
+```bash
+# Run against all tasks (in-process, no server needed)
+python -m secure_code_env.inference --all
+
+# Run a specific task
+python -m secure_code_env.inference --task SEC-HARD-001
+
+# Run against the API server
+python -m secure_code_env.inference --api http://localhost:8000 --all
+```
+
+---
+
+## Docker
+
+### Build
+
+```bash
+docker build -t secure-code-env .
+```
+
+### Run
+
+```bash
+docker run -p 8000:8000 -e HF_TOKEN=hf_... secure-code-env
+```
+
+---
+
+## Project Structure
+
+```
+secure-code-env/
+├── secure_code_env/
+│   ├── __init__.py        # Package init + public API
+│   ├── models.py          # Pydantic schemas (Observation, Action, Reward)
+│   ├── tasks.py           # Deterministic task registry (3 tasks)
+│   ├── grader.py          # Rule-based scoring engine
+│   ├── env.py             # OpenEnv environment (reset/step/state)
+│   ├── app.py             # FastAPI REST API
+│   ├── hf_client.py       # Hugging Face model wrapper
+│   ├── pipeline.py        # Self-healing pipeline (5 stages)
+│   └── inference.py       # Baseline agent + CLI
+├── tests/
+│   └── test_env.py        # Integration tests
+├── openenv.yaml           # OpenEnv specification
+├── Dockerfile             # Production container
+├── pyproject.toml         # Python project config
+├── requirements.txt       # Dependencies
+└── README.md              # This file
+```
+
+---
+
+## HF Models Used
+
+| Purpose | Default Model | Alternate |
+|---------|--------------|-----------|
+| Code analysis & fixes | `bigcode/starcoder2-15b` | `deepseek-ai/deepseek-coder-6.7b-instruct` |
+| Reasoning & explanation | `mistralai/Mistral-7B-Instruct-v0.3` | `mistralai/Mixtral-8x7B-Instruct-v0.1` |
+
+All generation uses `temperature=0, top_p=1, do_sample=False` for determinism.
+
+> **Note:** No OpenAI or Anthropic models are used. HF-only.
+
+---
+
+## License
+
+MIT
